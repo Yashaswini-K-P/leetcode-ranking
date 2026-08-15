@@ -26,10 +26,11 @@ function atomicWrite(filePath, data) {
 async function fetchData(url) {
   try {
     const res = await axios.get(url, { timeout: 15000 });
-    return res.data;
+    return { data: res.data, status: res.status };
   } catch (err) {
-    console.error(`API failed for ${url}: ${err.message}`);
-    return null;
+    const status = err.response ? err.response.status : null;
+    console.error(`API failed for ${url} (Status: ${status}): ${err.message}`);
+    return { data: null, status };
   }
 }
 
@@ -58,6 +59,26 @@ async function fetchData(url) {
     }
   } catch (err) {
     console.warn("Failed to load activity-state.json, starting fresh cache.");
+  }
+
+  const invalidUsersFilePath = path.join(DATA_DIR, "invalid-users.json");
+  let invalidUsersMap = {};
+  try {
+    if (fs.existsSync(invalidUsersFilePath)) {
+      const existingInvalid = JSON.parse(
+        fs.readFileSync(invalidUsersFilePath, "utf8"),
+      );
+      const list = Array.isArray(existingInvalid)
+        ? existingInvalid
+        : existingInvalid.invalidUsers || [];
+      list.forEach((item) => {
+        const username = typeof item === "string" ? item : item.username;
+        if (username) invalidUsersMap[username] = item;
+      });
+      console.log("Loaded existing invalid-users.json.");
+    }
+  } catch (err) {
+    console.warn("Failed to load invalid-users.json, starting fresh.");
   }
 
   const baseUrl = "https://leetcode-api-dun.vercel.app/";
@@ -90,10 +111,26 @@ async function fetchData(url) {
           return;
         }
 
-        const profile = await fetchData(baseUrl + username);
+        const { data: profile, status } = await fetchData(baseUrl + username);
+
         if (!profile) {
-          console.log(`${username}: unreachable (API error after retries)`);
-          unreachableUsers.push(username);
+          if (status === 404) {
+            console.log(
+              `${username}: Invalid account (404 Not Found) - flagged for manual verification`,
+            );
+            if (!invalidUsersMap[username]) {
+              invalidUsersMap[username] = {
+                username,
+                flaggedAt: new Date().toISOString(),
+                reason: "HTTP 404 Not Found",
+              };
+            }
+          } else {
+            console.log(
+              `${username}: unreachable (API error status ${status} after retries)`,
+            );
+            unreachableUsers.push(username);
+          }
           return;
         }
 
@@ -156,6 +193,26 @@ async function fetchData(url) {
     console.log("Activity state cache updated successfully!");
   } catch (err) {
     console.error("Failed to write activity-state.json: ", err.message);
+    process.exit(1);
+  }
+
+  console.log("Writing manual verification list to invalid-users.json...");
+  try {
+    const invalidOutputArray = Object.values(invalidUsersMap).sort((a, b) => {
+      const nameA = typeof a === "string" ? a : a.username;
+      const nameB = typeof b === "string" ? b : b.username;
+      return nameA.localeCompare(nameB);
+    });
+
+    atomicWrite(invalidUsersFilePath, {
+      generatedAt: now.toISOString(),
+      invalidUsers: invalidOutputArray,
+    });
+    console.log(
+      "invalid-users.json updated successfully with manual verification entries!",
+    );
+  } catch (err) {
+    console.error("Failed to write invalid-users.json: ", err.message);
     process.exit(1);
   }
 })();
