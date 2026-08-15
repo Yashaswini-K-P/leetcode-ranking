@@ -73,21 +73,27 @@ async function fetchUserInfo(username) {
 
   // 2. Fetch live profile ranking from the wrapper API
   let liveSolved = null;
-  const livePromise = fetchWithTimeout(liveApiUrl).then(async (res) => {
-    if (res.ok) {
-      const apiData = await res.json();
-      ranking = apiData.ranking || 0;
-      contest = apiData.contest || null;
-      liveSolved = {
-        easy: apiData.easySolved || 0,
-        medium: apiData.mediumSolved || 0,
-        hard: apiData.hardSolved || 0,
-      };
-    } else {
-      throw new Error(`LeetCode API wrapper returned status ${res.status}`);
-    }
-  });
-
+  const livePromise = fetchWithTimeout(liveApiUrl)
+    .then(async (res) => {
+      if (res.ok) {
+        const apiData = await res.json();
+        ranking = apiData.ranking || 0;
+        contest = apiData.contest || null;
+        liveSolved = {
+          easy: apiData.easySolved || 0,
+          medium: apiData.mediumSolved || 0,
+          hard: apiData.hardSolved || 0,
+        };
+      } else {
+        throw new Error(`LeetCode API wrapper returned status ${res.status}`);
+      }
+    })
+    .catch((err) => {
+      console.warn(
+        `Live LeetCode API unavailable for ${username}. Falling back to cached repository data. Reason:`,
+        err.message,
+      );
+    });
   // Wait for the live API task to complete
   await livePromise;
 
