@@ -92,9 +92,9 @@ jobs:
             # 3. Stage changes (everything except users.json and inactive-users.json)
             cd db-repo
             git add .
-            git reset -q users.json
-            git reset -q inactive-users.json
-            git reset -q activity-state.json
+            git reset -q HEAD -- users.json || true
+            git reset -q HEAD -- inactive-users.json || true
+            git reset -q HEAD -- activity-state.json || true
             
             # Debug: show exactly what is staged
             echo "--- Git Status ---"
