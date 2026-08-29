@@ -4,19 +4,14 @@ import { loadGoalSetter } from "./goal-setter.js";
 import { fetchUserData } from "./historical-graphs.js";
 import { loadLeaderboardRanks } from "./ranks.js";
 import { loadStreakData } from "./streak.js";
-
-function getUsername() {
-  const pathSegments = window.location.pathname.split("/");
-  return (
-    pathSegments[pathSegments.length - 1] ||
-    pathSegments[pathSegments.length - 2] ||
-    ""
-  );
-}
+import { getCurrentUsername } from "./utils.js";
 
 async function initProfile() {
-  const username = getUsername();
-  if (!username) return;
+  const username = getCurrentUsername();
+  if (!username) {
+    console.error("Critical error: Username meta tag is missing.");
+    return;
+  }
 
   // Set header display variables prior to fetch if elements exist
   const usernameHeading = document.getElementById("username-display");

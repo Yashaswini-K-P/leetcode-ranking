@@ -80,20 +80,26 @@ app.use((req, res, next) => {
 
 // 4. HTML page routes — inject per-request nonce into __NONCE__ placeholders
 const htmlCache = {};
-function serveHtml(res, filePath) {
-  if (htmlCache[filePath]) {
-    const html = htmlCache[filePath].replace(/__NONCE__/g, res.locals.nonce);
-    return res.type("html").send(html);
-  }
+function serveHtml(res, filePath, replacements = {}) {
+  let template = htmlCache[filePath];
 
-  fs.readFile(filePath, "utf8", (err, data) => {
-    if (err) {
+  if (!template) {
+    try {
+      template = fs.readFileSync(filePath, "utf8");
+      htmlCache[filePath] = template;
+    } catch (err) {
       return res.status(500).send("Error loading page");
     }
-    htmlCache[filePath] = data;
-    const html = data.replace(/__NONCE__/g, res.locals.nonce);
-    res.type("html").send(html);
-  });
+  }
+
+  let html = template.replace(/__NONCE__/g, res.locals.nonce);
+
+  for (const [key, value] of Object.entries(replacements)) {
+    const regex = new RegExp(key, "g");
+    html = html.replace(regex, value);
+  }
+
+  res.type("html").send(html);
 }
 
 /* HOME ROUTES */
@@ -133,7 +139,10 @@ app.get("/uptime", (req, res) => {
 });
 
 app.get("/user/:username", (req, res) => {
-  serveHtml(res, path.join(__dirname, "frontend", "user.html"));
+  const username = req.params.username;
+  serveHtml(res, path.join(__dirname, "frontend", "user.html"), {
+    __USERNAME__: username,
+  });
 });
 
 // ---- Rate limiter for API endpoint ----
