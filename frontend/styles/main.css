@@ -3229,12 +3229,17 @@ input[type="checkbox"].compare-checkbox:checked::after {
 .leaderboard-user-link {
   color: inherit;
   text-decoration: none;
+  transition: color 0.2s ease-in-out;
 }
 
-.leaderboard-user-link:hover,
 .leaderboard-user-link:visited,
 .leaderboard-user-link:active {
   color: inherit;
+  text-decoration: none;
+}
+
+.leaderboard-user-link:hover {
+  color: var(--accent-color, #00ff66);
   text-decoration: none;
 }
 
