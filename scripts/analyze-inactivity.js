@@ -28,9 +28,8 @@ async function fetchData(url) {
     const res = await axios.get(url, { timeout: 15000 });
     return { data: res.data, status: res.status };
   } catch (err) {
-    const status = err.response ? err.response.status : null;
-    console.error(`API failed for ${url} (Status: ${status}): ${err.message}`);
-    return { data: null, status };
+    console.error(`API failed for ${url}: ${err.message}`);
+    return { data: null, status: err.response?.status || 500 };
   }
 }
 
@@ -62,20 +61,23 @@ async function fetchData(url) {
   }
 
   const invalidUsersFilePath = path.join(DATA_DIR, "invalid-users.json");
-  let invalidUsersMap = {};
+  const invalidUsersMap = {};
   try {
     if (fs.existsSync(invalidUsersFilePath)) {
-      const existingInvalid = JSON.parse(
-        fs.readFileSync(invalidUsersFilePath, "utf8"),
-      );
-      const list = Array.isArray(existingInvalid)
-        ? existingInvalid
-        : existingInvalid.invalidUsers || [];
-      list.forEach((item) => {
-        const username = typeof item === "string" ? item : item.username;
-        if (username) invalidUsersMap[username] = item;
+      const rawInvalid = fs.readFileSync(invalidUsersFilePath, "utf8");
+      const parsed = JSON.parse(rawInvalid);
+      const list = Array.isArray(parsed) ? parsed : parsed.invalidUsers || [];
+      list.forEach((entry) => {
+        const u = typeof entry === "string" ? entry : entry.username;
+        invalidUsersMap[u] =
+          typeof entry === "string"
+            ? {
+                username: entry,
+                flaggedAt: new Date().toISOString(),
+                reason: "Existing entry",
+              }
+            : entry;
       });
-      console.log("Loaded existing invalid-users.json.");
     }
   } catch (err) {
     console.warn("Failed to load invalid-users.json, starting fresh.");
@@ -113,29 +115,49 @@ async function fetchData(url) {
 
         const { data: profile, status } = await fetchData(baseUrl + username);
 
-        if (!profile) {
-          if (status === 404) {
-            console.log(
-              `${username}: Invalid account (404 Not Found) - flagged for manual verification`,
-            );
-            if (!invalidUsersMap[username]) {
-              invalidUsersMap[username] = {
-                username,
-                flaggedAt: new Date().toISOString(),
-                reason: "HTTP 404 Not Found",
-              };
-            }
-          } else {
-            console.log(
-              `${username}: unreachable (API error status ${status} after retries)`,
-            );
-            unreachableUsers.push(username);
+        // Check for HTTP 404 OR HTTP 200 containing error payload ("does not exist")
+        // Check for HTTP 404 OR exact GraphQL error message from API
+        const isInvalidUser =
+          status === 404 ||
+          profile?.errors?.some(
+            (err) => err.message === "That user does not exist.",
+          );
+
+        if (isInvalidUser) {
+          console.log(
+            `${username}: Invalid account - flagged for manual verification`,
+          );
+          if (!invalidUsersMap[username]) {
+            invalidUsersMap[username] = {
+              username,
+              flaggedAt: new Date().toISOString(),
+              reason:
+                status === 404
+                  ? "HTTP 404 Not Found"
+                  : "API: That user does not exist.",
+            };
           }
           return;
         }
+        if (!profile) {
+          console.log(
+            `${username}: unreachable (API error status ${status} after retries)`,
+          );
+          unreachableUsers.push(username);
+          return;
+        }
 
-        const calendar = profile.submissionCalendar;
-        const timestamps = calendar ? Object.keys(calendar).map(Number) : [];
+        let calendarObj = profile.submissionCalendar;
+        if (typeof calendarObj === "string") {
+          try {
+            calendarObj = JSON.parse(calendarObj);
+          } catch (e) {
+            calendarObj = null;
+          }
+        }
+        const timestamps = calendarObj
+          ? Object.keys(calendarObj).map(Number)
+          : [];
 
         if (timestamps.length === 0) {
           console.log(`${username}: Inactive (no submission calendar history)`);
@@ -198,11 +220,9 @@ async function fetchData(url) {
 
   console.log("Writing manual verification list to invalid-users.json...");
   try {
-    const invalidOutputArray = Object.values(invalidUsersMap).sort((a, b) => {
-      const nameA = typeof a === "string" ? a : a.username;
-      const nameB = typeof b === "string" ? b : b.username;
-      return nameA.localeCompare(nameB);
-    });
+    const invalidOutputArray = Object.values(invalidUsersMap).sort((a, b) =>
+      a.username.localeCompare(b.username),
+    );
 
     atomicWrite(invalidUsersFilePath, {
       generatedAt: now.toISOString(),
